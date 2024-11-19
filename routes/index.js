@@ -24,6 +24,7 @@ router.post('/split-expense', async (req, res) => {
         // Validate expense format
         const validExpenses = expenses.every(expense => 
             expense.userName && 
+            expense.description && 
             typeof expense.amount === 'number' && 
             expense.amount >= 0
         );
@@ -31,65 +32,27 @@ router.post('/split-expense', async (req, res) => {
         if (!validExpenses) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid expense format. Each expense must have userName and amount'
+                message: 'Invalid expense format'
             });
         }
 
-        // Calculate total and per person share
-        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const perPersonShare = totalAmount / expenses.length;
-
-        // Calculate balances
-        const balances = expenses.map(expense => ({
-            userName: expense.userName,
-            balance: expense.amount - perPersonShare
-        }));
-
-        // Calculate settlements
-        const settlements = [];
-        const positiveBalances = balances.filter(b => b.balance > 0);
-        const negativeBalances = balances.filter(b => b.balance < 0);
-
-        while (positiveBalances.length > 0 && negativeBalances.length > 0) {
-            const payer = negativeBalances[0];
-            const receiver = positiveBalances[0];
-            const amount = Math.min(Math.abs(payer.balance), receiver.balance);
-
-            if (amount > 0) {
-                settlements.push({
-                    from: payer.userName,
-                    to: receiver.userName,
-                    amount: Number(amount.toFixed(2))
-                });
-            }
-
-            payer.balance += amount;
-            receiver.balance -= amount;
-
-            if (Math.abs(payer.balance) < 0.01) negativeBalances.shift();
-            if (Math.abs(receiver.balance) < 0.01) positiveBalances.shift();
-        }
+        // Calculation logic
+        const splitResult = calculateSplit(groupName, expenses);
 
         // Save to database
         const splitRecord = new Split({
             groupName,
             expenses,
-            totalAmount,
-            perPersonShare,
-            settlements
+            totalAmount: splitResult.totalGroupExpense,
+            perPersonShare: splitResult.perPersonShare,
+            settlements: splitResult.settlements
         });
 
         await splitRecord.save();
 
         res.json({
             success: true,
-            data: {
-                groupName,
-                totalAmount: Number(totalAmount.toFixed(2)),
-                perPersonShare: Number(perPersonShare.toFixed(2)),
-                expenses,
-                settlements
-            }
+            data: splitResult
         });
 
     } catch (error) {
@@ -100,105 +63,78 @@ router.post('/split-expense', async (req, res) => {
     }
 });
 
-// Get all splits for a group
-router.get('/splits/:groupName', async (req, res) => {
-    try {
-        const splits = await Split.find({ 
-            groupName: req.params.groupName 
-        }).sort({ createdAt: -1 });
+function calculateSplit(groupName, expenses) {
+    // Ensure total expense is correctly calculated
+    const totalExpense = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    
+    // Count unique users
+    const uniqueUsers = [...new Set(expenses.map(e => e.userName))];
+    const numUsers = uniqueUsers.length;
 
-        res.json({
-            success: true,
-            data: splits
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
+    // Aggregate expenses per unique user
+    const userTotals = uniqueUsers.reduce((acc, userName) => {
+        acc[userName] = expenses
+            .filter(e => e.userName === userName)
+            .reduce((sum, e) => sum + e.amount, 0);
+        return acc;
+    }, {});
 
-// Get recent splits
-router.get('/recent-splits', async (req, res) => {
-    try {
-        const splits = await Split.find()
-            .sort({ createdAt: -1 })
-            .limit(5);
+    // Calculate per-person share based on total unique users
+    const perPersonShare = totalExpense / numUsers;
 
-        res.json({
-            success: true,
-            data: splits
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-// Delete a split record
-router.delete('/split/:id', async (req, res) => {
-    try {
-        const split = await Split.findByIdAndDelete(req.params.id);
-        
-        if (!split) {
-            return res.status(404).json({
-                success: false,
-                message: 'Split record not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            message: 'Split record deleted successfully'
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-// Simple chatbot interface for split calculation
-router.post('/chatbot/split', async (req, res) => {
-    try {
-        const { message } = req.body;
-
-        // Simple message parsing (you can enhance this based on your needs)
-        if (message.toLowerCase().includes('split')) {
-            // Extract expense information from message
-            // This is a simple example - you'll need more sophisticated parsing
-            const response = {
-                type: 'split_request',
-                message: 'Please provide the following information:',
-                template: {
-                    groupName: 'Group name',
-                    expenses: [
-                        {
-                            userName: 'Person name',
-                            amount: 'Amount paid'
-                        }
-                    ]
-                }
+    // Detailed user expenses breakdown
+    const userExpenses = expenses.reduce((acc, expense) => {
+        if (!acc[expense.userName]) {
+            acc[expense.userName] = { 
+                expenses: [], 
+                totalAmount: 0 
             };
-
-            return res.json(response);
         }
+        acc[expense.userName].expenses.push(expense);
+        acc[expense.userName].totalAmount += expense.amount;
+        return acc;
+    }, {});
 
-        res.json({
-            type: 'text',
-            message: "I'm here to help you split expenses. Just say 'split' to get started!"
-        });
+    // Calculate balances
+    const balances = uniqueUsers.map(userName => ({
+        userName,
+        totalPaid: userExpenses[userName].totalAmount,
+        balance: userExpenses[userName].totalAmount - perPersonShare
+    }));
 
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
+    // Settlement calculations
+    const settlements = [];
+    const sortedBalances = balances.sort((a, b) => a.balance - b.balance);
+    
+    let i = 0, j = sortedBalances.length - 1;
+    while (i < j) {
+        const from = sortedBalances[i];
+        const to = sortedBalances[j];
+        const settleAmount = Math.min(Math.abs(from.balance), Math.abs(to.balance));
+        
+        if (settleAmount > 0) {
+            settlements.push({
+                from: from.userName,
+                to: to.userName,
+                amount: settleAmount
+            });
+            
+            from.balance += settleAmount;
+            to.balance -= settleAmount;
+        }
+        
+        if (from.balance === 0) i++;
+        if (to.balance === 0) j--;
     }
-});
+
+    return {
+        groupName,
+        totalGroupExpense: totalExpense,
+        perPersonShare,
+        userExpenses,
+        balances,
+        settlements
+    };
+}
 
 module.exports = router;

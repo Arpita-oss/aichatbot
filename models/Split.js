@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose")
 
 const SplitSchema = new mongoose.Schema({
     groupName: {
@@ -8,6 +8,10 @@ const SplitSchema = new mongoose.Schema({
     },
     expenses: [{
         userName: {
+            type: String,
+            required: true
+        },
+        description: {
             type: String,
             required: true
         },
@@ -37,5 +41,3 @@ const SplitSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('Split', SplitSchema);
-
-

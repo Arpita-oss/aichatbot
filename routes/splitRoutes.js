@@ -3,71 +3,70 @@ const router = express.Router();
 const Split = require('../models/Split');
 
 // Calculate split
-router.post('/calculate', async (req, res) => {
-    try {
-        const { groupName, expenses } = req.body;
+function calculateSplit(groupName, expenses) {
+    // Ensure total expense is correctly calculated
+    const totalExpense = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    
+    // Count unique users and ensure per-person share calculation is correct
+    const uniqueUsers = [...new Set(expenses.map(e => e.userName))];
+    const numUsers = uniqueUsers.length;
+    const perPersonShare = totalExpense / numUsers;
 
-        if (!groupName || !expenses || expenses.length < 2) {
-            return res.status(400).json({ 
-                error: 'Please provide group name and at least 2 expenses' 
-            });
+    // Detailed user expenses breakdown
+    const userExpenses = expenses.reduce((acc, expense) => {
+        if (!acc[expense.userName]) {
+            acc[expense.userName] = { 
+                expenses: [], 
+                totalAmount: 0 
+            };
         }
+        acc[expense.userName].expenses.push(expense);
+        acc[expense.userName].totalAmount += expense.amount;
+        return acc;
+    }, {});
 
-        // Calculate total amount
-        const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const perPersonShare = totalAmount / expenses.length;
+    // Calculate balances
+    const balances = uniqueUsers.map(userName => ({
+        userName,
+        totalPaid: userExpenses[userName].totalAmount,
+        balance: userExpenses[userName].totalAmount - perPersonShare
+    }));
 
-        // Calculate settlements
-        const settlements = [];
-        const balances = expenses.map(expense => ({
-            userName: expense.userName,
-            balance: expense.amount - perPersonShare
-        }));
-
-        const positiveBalances = balances.filter(b => b.balance > 0);
-        const negativeBalances = balances.filter(b => b.balance < 0);
-
-        while (positiveBalances.length > 0 && negativeBalances.length > 0) {
-            const payer = negativeBalances[0];
-            const receiver = positiveBalances[0];
-            const amount = Math.min(Math.abs(payer.balance), receiver.balance);
-
+    // Settlement calculations
+    const settlements = [];
+    const sortedBalances = balances.sort((a, b) => a.balance - b.balance);
+    
+    let i = 0, j = sortedBalances.length - 1;
+    while (i < j) {
+        const from = sortedBalances[i];
+        const to = sortedBalances[j];
+        
+        const settleAmount = Math.min(Math.abs(from.balance), to.balance);
+        
+        if (settleAmount > 0) {
             settlements.push({
-                from: payer.userName,
-                to: receiver.userName,
-                amount: Number(amount.toFixed(2))
+                from: from.userName,
+                to: to.userName,
+                amount: settleAmount
             });
-
-            payer.balance += amount;
-            receiver.balance -= amount;
-
-            if (Math.abs(payer.balance) < 0.01) negativeBalances.shift();
-            if (Math.abs(receiver.balance) < 0.01) positiveBalances.shift();
+            
+            from.balance += settleAmount;
+            to.balance -= settleAmount;
         }
-
-        // Save to database
-        const split = new Split({
-            groupName,
-            expenses,
-            totalAmount,
-            perPersonShare,
-            settlements
-        });
-
-        await split.save();
-
-        res.json({
-            groupName,
-            totalAmount,
-            perPersonShare,
-            expenses,
-            settlements
-        });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        
+        if (from.balance === 0) i++;
+        if (to.balance === 0) j--;
     }
-});
+
+    return {
+        groupName,
+        totalGroupExpense: totalExpense,
+        perPersonShare,
+        userExpenses,
+        balances,
+        settlements
+    };
+}
 
 // Get split history
 router.get('/history', async (req, res) => {

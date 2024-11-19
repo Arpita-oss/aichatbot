@@ -1,115 +1,215 @@
-extends layout
+doctype html
+html(lang="en")
+    head
+        meta(charset="UTF-8")
+        meta(name="viewport", content="width=device-width, initial-scale=1.0")
+        title Expense Splitter
+        style.
+            body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            .container { background-color: #f4f4f4; padding: 20px; border-radius: 5px; }
+            .person, .expense { margin-bottom: 10px; }
+            input { margin: 5px 0; padding: 5px; width: 100%; }
+            button { margin: 10px 0; padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+            #resultArea { margin-top: 20px; background-color: #e9e9e9; padding: 15px; }
+            .split-result { line-height: 1.6; }
 
-block content
-  h1= title
-  
-  .container
-    h2 Add New Split
-    form#splitForm(onsubmit="handleSubmit(event)")
-      .form-group
-        label(for="groupName") Group Name:
-        input#groupName(type="text" name="groupName" required)
-      
-      #expensesList
-        .expense
-          input(type="text" placeholder="Person Name" required)
-          input(type="number" placeholder="Amount" required min="0" step="0.01")
-      
-      button#addPerson(type="button") Add Another Person
-      button(type="submit") Calculate Split
+    body
+        .container
+            h1 Expense Splitter
+            
+            h2 Add New Split
+            form#splitForm(onsubmit="handleSubmit(event)")
+                .form-group
+                    label(for="groupName") Group Name:
+                    input#groupName(type="text" name="groupName" required)
+                
+                #personsList
+                    .person
+                        input.personName(type="text" placeholder="Person Name" required)
+                        #expensesList-0
+                            .expense
+                                input(type="text" placeholder="Expense Description" required)
+                                input(type="number" placeholder="Amount" required min="0" step="0.01")
+                        button.addExpense(type="button") Add Another Expense
 
-    #resultArea
-    h2 Recent Splits
-    #recentSplits
+                button#addPerson(type="button") Add Another Person
+                button(type="submit") Calculate Split
 
-  script.
-    // Add person button handler
-    document.getElementById('addPerson').addEventListener('click', function() {
-      const expenseDiv = document.createElement('div');
-      expenseDiv.className = 'expense';
-      expenseDiv.innerHTML = `
-        <input type="text" placeholder="Person Name" required>
-        <input type="number" placeholder="Amount" required min="0" step="0.01">
-      `;
-      document.getElementById('expensesList').appendChild(expenseDiv);
-    });
+            #resultArea
+            
+            h2 Recent Splits
+            #recentSplits
 
-    // Form submission handler
-    async function handleSubmit(event) {
-      event.preventDefault();
-      const resultArea = document.getElementById('resultArea');
-      resultArea.innerHTML = 'Calculating...';
-      
-      const groupName = document.getElementById('groupName').value;
-      const expenseDivs = document.querySelectorAll('.expense');
-      const expenses = Array.from(expenseDivs).map(div => ({
-        userName: div.querySelector('input[type="text"]').value,
-        amount: parseFloat(div.querySelector('input[type="number"]').value)
-      }));
+        script.
+            let personCounter = 0;
 
-      try {
-        const response = await fetch('/split-expense', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ groupName, expenses })
-        });
+            // Add person button handler
+            document.getElementById('addPerson').addEventListener('click', function() {
+                personCounter++;
+                const personDiv = document.createElement('div');
+                personDiv.className = 'person';
+                personDiv.innerHTML = `
+                    <input class="personName" type="text" placeholder="Person Name" required>
+                    <div id="expensesList-${personCounter}"></div>
+                    <button class="addExpense" type="button">Add Another Expense</button>
+                `;
+                document.getElementById('personsList').appendChild(personDiv);
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
+                // Add expense handler for dynamically added persons
+                personDiv.querySelector('.addExpense').addEventListener('click', function() {
+                    const expensesList = personDiv.querySelector(`#expensesList-${personCounter}`);
+                    const expenseDiv = document.createElement('div');
+                    expenseDiv.className = 'expense';
+                    expenseDiv.innerHTML = `
+                        <input type="text" placeholder="Expense Description" required>
+                        <input type="number" placeholder="Amount" required min="0" step="0.01">
+                    `;
+                    expensesList.appendChild(expenseDiv);
+                });
+            });
 
-        const data = await response.json();
-        displayResult(data.data);
-      } catch (error) {
-        resultArea.innerHTML = `Error: ${error.message}`;
-        console.error('Error:', error);
-      }
-    }
+            // Add expense handler for initial person
+            document.querySelector('.addExpense').addEventListener('click', function() {
+                const expensesList = document.getElementById('expensesList-0');
+                const expenseDiv = document.createElement('div');
+                expenseDiv.className = 'expense';
+                expenseDiv.innerHTML = `
+                    <input type="text" placeholder="Expense Description" required>
+                    <input type="number" placeholder="Amount" required min="0" step="0.01">
+                `;
+                expensesList.appendChild(expenseDiv);
+            });
 
-    function displayResult(data) {
-      const resultArea = document.getElementById('resultArea');
-      resultArea.innerHTML = `
-        <div class="split-result">
-          <h3>Split Results for ${data.groupName}</h3>
-          <p>Total Amount: $${data.totalAmount}</p>
-          <p>Per Person Share: $${data.perPersonShare}</p>
-          <h4>Settlements:</h4>
-          <ul>
-            ${data.settlements.map(s => `
-              <li>${s.from} should pay ${s.to} $${s.amount}</li>
-            `).join('')}
-          </ul>
-        </div>
-      `;
-    }
+            // Load recent splits function
+            async function loadRecentSplits() {
+                try {
+                    const response = await fetch('/recent-splits');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    const recentSplitsDiv = document.getElementById('recentSplits');
+                    if (data.data && data.data.length > 0) {
+                        recentSplitsDiv.innerHTML = data.data.map(split => `
+                            <div class="split-record">
+                                <h3>${split.groupName || 'Unnamed Group'}</h3>
+                                <p>Total Amount: $${split.totalAmount || 0}</p>
+                                <p>Date: ${split.createdAt ? new Date(split.createdAt).toLocaleDateString() : 'Unknown Date'}</p>
+                            </div>
+                        `).join('');
+                    } else {
+                        recentSplitsDiv.innerHTML = '<p>No recent splits found</p>';
+                    }
+                } catch (error) {
+                    console.error('Error loading recent splits:', error);
+                    document.getElementById('recentSplits').innerHTML = '<p>Error loading recent splits</p>';
+                }
+            }
 
-    // Load recent splits
-    async function loadRecentSplits() {
-      try {
-        const response = await fetch('/recent-splits');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        const recentSplitsDiv = document.getElementById('recentSplits');
-        if (data.data && data.data.length > 0) {
-          recentSplitsDiv.innerHTML = data.data.map(split => `
-            <div class="split-record">
-              <h3>${split.groupName}</h3>
-              <p>Total Amount: $${split.totalAmount}</p>
-              <p>Date: ${new Date(split.createdAt).toLocaleDateString()}</p>
-            </div>
-          `).join('');
-        } else {
-          recentSplitsDiv.innerHTML = '<p>No recent splits found</p>';
-        }
-      } catch (error) {
-        console.error('Error loading recent splits:', error);
-        document.getElementById('recentSplits').innerHTML = '<p>Error loading recent splits</p>';
-      }
-    }
+            // Form submission handler
+            async function handleSubmit(event) {
+                event.preventDefault();
+                const resultArea = document.getElementById('resultArea');
+                resultArea.innerHTML = 'Calculating...';
 
-    // Load recent splits when page loads
-    loadRecentSplits();
+                const groupName = document.getElementById('groupName').value;
+                const persons = document.querySelectorAll('.person');
+                const expenses = [];
+
+                persons.forEach(personDiv => {
+                    const userName = personDiv.querySelector('.personName').value;
+                    const personExpenses = personDiv.querySelectorAll('.expense');
+                    
+                    personExpenses.forEach(expenseDiv => {
+                        const description = expenseDiv.querySelector('input[type="text"]').value;
+                        const amount = parseFloat(expenseDiv.querySelector('input[type="number"]').value);
+                                  console.log(`Expense - User: ${userName}, Description: ${description}, Amount: ${amount}`);
+                        
+                        expenses.push({
+                            userName,
+                            description,
+                            amount
+                        });
+                    });
+                });
+                 console.log('All Expenses:', expenses);
+
+
+                try {
+                    const response = await fetch('/split-expense', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ groupName, expenses })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    displayResult(data.data);
+                    loadRecentSplits(); // Refresh recent splits after new split
+                } catch (error) {
+                    resultArea.innerHTML = `Error: ${error.message}`;
+                    console.error('Error:', error);
+                }
+            }
+
+            // Display result function with robust error handling
+            function displayResult(data) {
+                const resultArea = document.getElementById('resultArea');
+                
+                if (!data) {
+                    resultArea.innerHTML = 'Error: No data received';
+                    return;
+                }
+
+                try {
+                    resultArea.innerHTML = `
+                        <div class="split-result">
+                            <h3>Split Results for ${data.groupName || 'Unknown Group'}</h3>
+                            <p>Total Group Expense: $${data.totalAmount || 0}</p>
+                            <p>Per Person Share: $${data.perPersonShare || 0}</p>
+                            
+                            <h4>Individual Expenses:</h4>
+                            ${data.userExpenses ? Object.entries(data.userExpenses).map(([userName, userData]) => `
+                                <div>
+                                    <strong>${userName}'s Expenses:</strong>
+                                    <ul>
+                                        ${userData.expenses ? userData.expenses.map(expense => 
+                                            `<li>${expense.description}: $${expense.amount}</li>`
+                                        ).join('') : 'No expenses'}
+                                    <li><em>Total Paid: $${userData.totalAmount || 0}</em></li>
+                                    </ul>
+                                </div>
+                            `).join('') : 'No user expenses'}
+                            
+                            <h4>Individual Balances:</h4>
+                            <ul>
+                                ${data.balances ? data.balances.map(balance => `
+                                    <li>
+                                        ${balance.userName}: 
+                                        Paid $${balance.totalPaid ? balance.totalPaid.toFixed(2) : 0}, 
+                                        Balance ${balance.balance >= 0 ? '+' : ''}$${balance.balance ? balance.balance.toFixed(2) : 0}
+                                    </li>
+                                `).join('') : 'No balance information'}
+                            </ul>
+                            
+                            <h4>Settlements:</h4>
+                            <ul>
+                                ${data.settlements ? data.settlements.map(s => `
+                                    <li>${s.from} should pay ${s.to} $${s.amount}</li>
+                                `).join('') : 'No settlements'}
+                            </ul>
+                        </div>
+                    `;
+                } catch (error) {
+                    resultArea.innerHTML = `Error processing data: ${error.message}`;
+                    console.error('Display result error:', error);
+                }
+            }
+
+            // Load recent splits when page loads
+            loadRecentSplits();

@@ -18,7 +18,7 @@ const app = express();
 // MongoDB connection with proper error handling
 const connectDB = async () => {
     try {
-        await mongoose.connect('mongodb://127.0.0.1:27017/splitwise_chatbot', {
+        await mongoose.connect('mongodb://127.0.0.1:27017/expense_splitter', {
             useNewUrlParser: true,
             useUnifiedTopology: true,
         });
