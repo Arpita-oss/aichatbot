@@ -37,3 +37,5 @@ const SplitSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('Split', SplitSchema);
+
+
