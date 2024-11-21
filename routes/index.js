@@ -67,19 +67,9 @@ function calculateSplit(groupName, expenses) {
     // Ensure total expense is correctly calculated
     const totalExpense = expenses.reduce((sum, expense) => sum + expense.amount, 0);
     
-    // Count unique users
+    // Count unique users and ensure per-person share calculation is correct
     const uniqueUsers = [...new Set(expenses.map(e => e.userName))];
     const numUsers = uniqueUsers.length;
-
-    // Aggregate expenses per unique user
-    const userTotals = uniqueUsers.reduce((acc, userName) => {
-        acc[userName] = expenses
-            .filter(e => e.userName === userName)
-            .reduce((sum, e) => sum + e.amount, 0);
-        return acc;
-    }, {});
-
-    // Calculate per-person share based on total unique users
     const perPersonShare = totalExpense / numUsers;
 
     // Detailed user expenses breakdown
@@ -110,7 +100,8 @@ function calculateSplit(groupName, expenses) {
     while (i < j) {
         const from = sortedBalances[i];
         const to = sortedBalances[j];
-        const settleAmount = Math.min(Math.abs(from.balance), Math.abs(to.balance));
+        
+        const settleAmount = Math.min(Math.abs(from.balance), to.balance);
         
         if (settleAmount > 0) {
             settlements.push({
@@ -136,5 +127,6 @@ function calculateSplit(groupName, expenses) {
         settlements
     };
 }
+
 
 module.exports = router;
